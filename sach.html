@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="sk">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Šachová hra</title>
+  <style>
+    body {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      margin: 0;
+      background: #2b2b2b;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      user-select: none;
+    }
+
+    #chessboard {
+      display: grid;
+      grid-template-columns: repeat(8, 60px);
+      grid-template-rows: repeat(8, 60px);
+      box-shadow: 0 0 20px rgba(0,0,0,0.8);
+      border-radius: 8px;
+      overflow: hidden;
+      background: #f0d9b5;
+    }
+
+    .square {
+      width: 60px;
+      height: 60px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      font-size: 40px;
+      cursor: pointer;
+      transition: background-color 0.3s ease;
+    }
+
+    .square.dark {
+      background-color: #b58863;
+    }
+
+    .square.highlight {
+      background-color: #f7ec5d !important;
+    }
+
+    .square.possible-move {
+      background-color: #a9d18e !important;
+      cursor: pointer;
+    }
+
+    .square.selected {
+      outline: 3px solid #4a90e2;
+    }
+
+    #status {
+      margin-top: 20px;
+      color: #eee;
+      font-size: 18px;
+      text-align: center;
+    }
+
+    #reset-btn {
+      margin-top: 10px;
+      padding: 8px 18px;
+      font-size: 16px;
+      border-radius: 5px;
+      border: none;
+      background-color: #4a90e2;
+      color: white;
+      cursor: pointer;
+      transition: background-color 0.3s ease;
+    }
+
+    #reset-btn:hover {
+      background-color: #357ABD;
+    }
+
+    .square img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+<div>
+  <div id="chessboard" aria-label="Šachová doska" role="grid"></div>
+  <div id="status" aria-live="polite"></div>
+  <button id="reset-btn" aria-label="Resetovať hru">Resetovať hru</button>
+</div>
+
+<script>
+  (() => {
+    const board = document.getElementById('chessboard');
+    const status = document.getElementById('status');
+    const resetBtn = document.getElementById('reset-btn');
+
+    let boardState = [
+      'r','n','b','q','k','b','n','r',
+      'p','p','p','p','p','p','p','p',
+      '.','.','.','.','.','.','.','.',
+      '.','.','.','.','.','.','.','.',
+      '.','.','.','.','.','.','.','.',
+      '.','.','.','.','.','.','.','.',
+      'P','P','P','P','P','P','P','P',
+      'R','N','B','Q','K','B','N','R'
+    ];
+
+    let turn = 'w';
+    let selectedIndex = null;
+    let possibleMoves = [];
+    const files = ['a','b','c','d','e','f','g','h'];
+    let gameOver = false;
+
+    function createBoard() {
+      board.innerHTML = '';
+      for (let i = 0; i < 64; i++) {
+        const square = document.createElement('div');
+        square.classList.add('square');
+        const row = Math.floor(i / 8);
+        const col = i % 8;
+        if ((row + col) % 2 === 1) square.classList.add('dark');
+        square.dataset.index = i;
+        square.setAttribute('role', 'gridcell');
+        square.setAttribute('aria-label', `Políčko ${files[col]}${8-row}`);
+        square.addEventListener('click', onSquareClick);
+        board.appendChild(square);
+      }
+    }
+
+    function renderPieces() {
+      for (let i = 0; i < 64; i++) {
+        const square = board.children[i];
+        square.innerHTML = '';
+        square.classList.remove('selected', 'possible-move', 'highlight');
+        const pieceChar = boardState[i];
+        if (pieceChar !== '.') {
+          const img = document.createElement('img');
+          img.src = `${pieceChar}.png`;
+          img.alt = pieceChar;
+          square.appendChild(img);
+        }
+      }
+
+      if (selectedIndex !== null) {
+        board.children[selectedIndex].classList.add('selected');
+        possibleMoves.forEach(i => {
+          board.children[i].classList.add('possible-move');
+        });
+      }
+    }
+
+    function isOwnPiece(piece) {
+      if (piece === '.') return false;
+      return (turn === 'w') ? piece === piece.toUpperCase() : piece === piece.toLowerCase();
+    }
+
+    function isOpponentPiece(piece) {
+      if (piece === '.') return false;
+      return !isOwnPiece(piece);
+    }
+
+    function indexToRC(i) {
+      return {row: Math.floor(i/8), col: i%8};
+    }
+
+    function rcToIndex(r,c) {
+      return r*8 + c;
+    }
+
+    function onBoard(r,c) {
+      return r>=0 && r<8 && c>=0 && c<8;
+    }
+
+    function generateMoves(i) {
+      const piece = boardState[i];
+      if (piece === '.') return [];
+      const moves = [];
+      const {row, col} = indexToRC(i);
+      const dir = (piece === piece.toUpperCase()) ? -1 : 1;
+      const enemyPieces = (piece === piece.toUpperCase()) ? /[a-z]/ : /[A-Z]/;
+
+      switch(piece.toLowerCase()) {
+        case 'p': {
+          let front = rcToIndex(row + dir, col);
+          if (onBoard(row+dir, col) && boardState[front] === '.') {
+            moves.push(front);
+            let startRow = (piece === 'P') ? 6 : 1;
+            if(row === startRow) {
+              let doubleFront = rcToIndex(row + 2*dir, col);
+              if(boardState[doubleFront] === '.') {
+                moves.push(doubleFront);
+              }
+            }
+          }
+          for(let dc of [-1,1]) {
+            let r2 = row + dir;
+            let c2 = col + dc;
+            if(onBoard(r2,c2)) {
+              let idx = rcToIndex(r2,c2);
+              if(boardState[idx] !== '.' && enemyPieces.test(boardState[idx])) {
+                moves.push(idx);
+              }
+            }
+          }
+          break;
+        }
+        case 'r': {
+          const directions = [[1,0], [-1,0], [0,1], [0,-1]];
+          directions.forEach(d => {
+            let r2 = row + d[0], c2 = col + d[1];
+            while(onBoard(r2,c2)) {
+              let idx = rcToIndex(r2,c2);
+              if(boardState[idx] === '.') {
+                moves.push(idx);
+              } else {
+                if(enemyPieces.test(boardState[idx])) moves.push(idx);
+                break;
+              }
+              r2 += d[0]; c2 += d[1];
+            }
+          });
+          break;
+        }
+        case 'n': {
+          const knightMoves = [[-2,-1],[-2,1],[-1,-2],[-1,2],[1,-2],[1,2],[2,-1],[2,1]];
+          knightMoves.forEach(offset => {
+            let r2 = row + offset[0], c2 = col + offset[1];
+            if(onBoard(r2,c2)) {
+              let idx = rcToIndex(r2,c2);
+              if(boardState[idx] === '.' || enemyPieces.test(boardState[idx])) {
+                moves.push(idx);
+              }
+            }
+          });
+          break;
+        }
+        case 'b': {
+          const directions = [[1,1],[1,-1],[-1,1],[-1,-1]];
+          directions.forEach(d => {
+            let r2 = row + d[0], c2 = col + d[1];
+            while(onBoard(r2,c2)) {
+              let idx = rcToIndex(r2,c2);
+              if(boardState[idx] === '.') {
+                moves.push(idx);
+              } else {
+                if(enemyPieces.test(boardState[idx])) moves.push(idx);
+                break;
+              }
+              r2 += d[0]; c2 += d[1];
+            }
+          });
+          break;
+        }
+        case 'q': {
+          const directions = [[1,0], [-1,0], [0,1], [0,-1], [1,1],[1,-1],[-1,1],[-1,-1]];
+          directions.forEach(d => {
+            let r2 = row + d[0], c2 = col + d[1];
+            while(onBoard(r2,c2)) {
+              let idx = rcToIndex(r2,c2);
+              if(boardState[idx] === '.') {
+                moves.push(idx);
+              } else {
+                if(enemyPieces.test(boardState[idx])) moves.push(idx);
+                break;
+              }
+              r2 += d[0]; c2 += d[1];
+            }
+          });
+          break;
+        }
+        case 'k': {
+          const offsets = [[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]];
+          offsets.forEach(d => {
+            let r2 = row + d[0], c2 = col + d[1];
+            if(onBoard(r2,c2)) {
+              let idx = rcToIndex(r2,c2);
+              if(boardState[idx] === '.' || enemyPieces.test(boardState[idx])) {
+                moves.push(idx);
+              }
+            }
+          });
+          break;
+        }
+      }
+      return moves;
+    }
+
+    function isValidMove(src, dest) {
+      return possibleMoves.includes(dest);
+    }
+
+    function movePiece(src, dest) {
+      const piece = boardState[src];
+      boardState[dest] = piece;
+      boardState[src] = '.';
+      let {row} = indexToRC(dest);
+      if(piece === 'P' && row === 0) boardState[dest] = 'Q';
+      if(piece === 'p' && row === 7) boardState[dest] = 'q';
+    }
+
+    function checkGameEnd() {
+      const allPieces = boardState.join('');
+      if(!/[K]/.test(allPieces)) {
+        status.textContent = "Čierna vyhrala! Biela kráľ bol zajatý.";
+        gameOver = true;
+        return true;
+      }
+      if(!/[k]/.test(allPieces)) {
+        status.textContent = "Biela vyhrala! Čierna kráľ bol zajatý.";
+        gameOver = true;
+        return true;
+      }
+      return false;
+    }
+
+    function updateStatus() {
+      if(gameOver) return;
+      status.textContent = (turn === 'w') ? 'Na ťahu je biely hráč' : 'Na ťahu je čierny hráč';
+    }
+
+    function onSquareClick(e) {
+      if(gameOver) return;
+      const index = parseInt(e.currentTarget.dataset.index);
+      const piece = boardState[index];
+
+      if(selectedIndex === null) {
+        if(isOwnPiece(piece)) {
+          selectedIndex = index;
+          possibleMoves = generateMoves(index);
+          if(possibleMoves.length === 0) {
+            selectedIndex = null;
+            possibleMoves = [];
+          }
+        }
+      } else {
+        if(index === selectedIndex) {
+          selectedIndex = null;
+          possibleMoves = [];
+        } else if(isValidMove(selectedIndex, index)) {
+          movePiece(selectedIndex, index);
+          selectedIndex = null;
+          possibleMoves = [];
+          if(checkGameEnd()) {
+            renderPieces();
+            return;
+          }
+          turn = (turn === 'w') ? 'b' : 'w';
+          updateStatus();
+        } else {
+          if(isOwnPiece(piece)) {
+            selectedIndex = index;
+            possibleMoves = generateMoves(index);
+          } else {
+            selectedIndex = null;
+            possibleMoves = [];
+          }
+        }
+      }
+      renderPieces();
+    }
+
+    function resetGame() {
+      boardState = [
+        'r','n','b','q','k','b','n','r',
+        'p','p','p','p','p','p','p','p',
+        '.','.','.','.','.','.','.','.',
+        '.','.','.','.','.','.','.','.',
+        '.','.','.','.','.','.','.','.',
+        '.','.','.','.','.','.','.','.',
+        'P','P','P','P','P','P','P','P',
+        'R','N','B','Q','K','B','N','R'
+      ];
+      turn = 'w';
+      selectedIndex = null;
+      possibleMoves = [];
+      gameOver = false;
+      updateStatus();
+      renderPieces();
+    }
+
+    createBoard();
+    resetGame();
+    resetBtn.addEventListener('click', resetGame);
+  })();
+</script>
+</body>
+</html>
